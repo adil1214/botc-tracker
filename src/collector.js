@@ -99,6 +99,16 @@ function sessionName(state) {
   }
 }
 
+// The logged-in user's own id, so the overlay can highlight their name.
+function selfId(state) {
+  try {
+    const u = state.user && state.user.user;
+    return u && u.id != null ? String(u.id) : null;
+  } catch {
+    return null;
+  }
+}
+
 // seat index -> player id, from state.players.players
 function seatIds(state) {
   try {
@@ -115,6 +125,7 @@ function emitRosterAndPhase(state) {
     roster: extractRoster(state),
     sessionName: sessionName(state),
     seatIds: seatIds(state),
+    selfId: selfId(state),
   });
   emitPhase(state, true);
 }

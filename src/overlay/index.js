@@ -13,12 +13,15 @@ const state = {
   gameKey: null,
   sessionName: null,
   roster: {}, // id -> name
+  selfId: null, // the logged-in user's id (highlight their name)
+  storytellerIds: [], // ids of storytellers (highlight their names)
   phase: null, // {dayNumber, label, isDay}
   nominations: [], // resolved records (see collector NOMINATION_RESOLVED)
   live: null, // current live nomination or null
   callersByDay: {}, // dayNumber -> { groups: string[][] (ids), pairs: string[] }
   whispersByDay: {}, // dayNumber -> string[] (pair keys)
-  ui: { open: true, tab: 'votes', expanded: {} },
+  archive: [], // past cleared logs: { at, sessionName, nominations, callersByDay, whispersByDay, roster }
+  ui: { open: true, tab: 'votes', expanded: {}, confirmClear: false },
 };
 
 // ---- persistence -----------------------------------------------------------
@@ -33,10 +36,13 @@ function save() {
           gameKey: state.gameKey,
           sessionName: state.sessionName,
           roster: state.roster,
+          selfId: state.selfId,
+          storytellerIds: state.storytellerIds,
           phase: state.phase,
           nominations: state.nominations,
           callersByDay: state.callersByDay,
           whispersByDay: state.whispersByDay,
+          archive: state.archive,
           ui: { open: state.ui.open, tab: state.ui.tab },
         },
       });
@@ -55,10 +61,13 @@ function restore() {
           gameKey: saved.gameKey ?? null,
           sessionName: saved.sessionName ?? null,
           roster: saved.roster ?? {},
+          selfId: saved.selfId ?? null,
+          storytellerIds: saved.storytellerIds ?? [],
           phase: saved.phase ?? null,
           nominations: saved.nominations ?? [],
           callersByDay: saved.callersByDay ?? {},
           whispersByDay: saved.whispersByDay ?? {},
+          archive: saved.archive ?? [],
         });
         state.ui.open = saved.ui?.open ?? true;
         state.ui.tab = saved.ui?.tab ?? 'votes';
@@ -86,6 +95,40 @@ function nameForId(id) {
   return state.roster[String(id)] || `#${id}`;
 }
 
+function idForSeat(seatIds, seat) {
+  let id = seatIds && seatIds[seat];
+  if (id == null && state.domSeatIds) id = state.domSeatIds[seat];
+  return id != null ? String(id) : null;
+}
+
+// A name as a styled <span>, highlighted if it's the user (nm-self) or a
+// storyteller (nm-st). Used in both the Nominations and Callers tabs.
+function nameSpan(id, name) {
+  const cls = ['nm'];
+  if (id != null && String(id) === String(state.selfId)) cls.push('nm-self');
+  if (id != null && state.storytellerIds.includes(String(id))) cls.push('nm-st');
+  return h('span', { class: cls.join(' '), text: name });
+}
+
+function seatNameSpan(seatIds, seat) {
+  const id = idForSeat(seatIds, seat);
+  return nameSpan(id, nameForSeat(seatIds, seat));
+}
+
+function idNameSpan(id) {
+  return nameSpan(id, nameForId(id));
+}
+
+// Join an array of elements with a text separator into a fragment.
+function joinEls(els, sep) {
+  const frag = document.createDocumentFragment();
+  els.forEach((el, i) => {
+    if (i > 0) frag.appendChild(document.createTextNode(sep));
+    frag.appendChild(el);
+  });
+  return frag;
+}
+
 // Primary id->name resolver: read botc.app's town-square DOM.
 // Every token (seated players, storytellers, spectators-with-tiles) carries the
 // user id in its class as `id-<userId>` with the clean name in `.nameplate .name`.
@@ -101,6 +144,12 @@ function scrapeRoster() {
     const name = nameEl ? nameEl.textContent.trim() : null;
     if (name && !roster[m[1]]) roster[m[1]] = name;
   });
+  // Storyteller ids: tokens carrying a "storyteller" class.
+  const storytellerIds = [];
+  document.querySelectorAll('[class*="storyteller"]').forEach((el) => {
+    const m = (el.className || '').match(/(?:^|\s)id-(\d+)/);
+    if (m && !storytellerIds.includes(m[1])) storytellerIds.push(m[1]);
+  });
   // Seat order from the town-square circle.
   const seatIds = [];
   const circle = document.querySelector('ul.circle, ul[class*="circle"]');
@@ -111,7 +160,7 @@ function scrapeRoster() {
     });
   }
   if (!Object.keys(roster).length && !seatIds.length) return null;
-  return { roster, seatIds };
+  return { roster, seatIds, storytellerIds };
 }
 
 // Merge freshly-scraped names into state; returns true if anything changed.
@@ -126,6 +175,14 @@ function refreshRoster() {
     }
   }
   if (scraped.seatIds.length) state.domSeatIds = scraped.seatIds;
+  if (scraped.storytellerIds.length) {
+    for (const id of scraped.storytellerIds) {
+      if (!state.storytellerIds.includes(id)) {
+        state.storytellerIds.push(id);
+        changed = true;
+      }
+    }
+  }
   if (changed) save();
   return changed;
 }
@@ -161,12 +218,14 @@ function onEvent(type, p) {
     case EV.ROSTER:
       if (p.roster && Object.keys(p.roster).length) state.roster = { ...state.roster, ...p.roster };
       if (p.sessionName) state.sessionName = p.sessionName;
+      if (p.selfId) state.selfId = String(p.selfId);
       ensureRoster();
       break;
     case EV.PHASE:
       state.phase = p;
       break;
     case EV.GAME_RESET:
+      archiveCurrent(); // preserve the finished game before wiping
       resetGame(p.gameKey);
       break;
     case EV.NOMINATION_LIVE:
@@ -263,7 +322,11 @@ function renderVotes() {
     wrap.appendChild(
       h('div', { class: 'live' },
         h('span', { class: 'livedot' }),
-        `LIVE — ${nameForSeat(l.seatIds, l.nominatorSeat)} → ${nameForSeat(l.seatIds, l.nomineeSeat)}: ${up} hand${up === 1 ? '' : 's'} up`,
+        'LIVE — ',
+        seatNameSpan(l.seatIds, l.nominatorSeat),
+        ' → ',
+        seatNameSpan(l.seatIds, l.nomineeSeat),
+        `: ${up} hand${up === 1 ? '' : 's'} up`,
       ),
     );
   }
@@ -277,23 +340,21 @@ function renderVotes() {
     wrap.appendChild(h('div', { class: 'dayhdr', text: day ? `Day ${day}` : 'Day —' }));
     recs.forEach((r, i) => {
       const key = `${day}:${i}`;
-      const nominator = nameForSeat(r.seatIds, r.nominatorSeat);
-      const nominee = nameForSeat(r.seatIds, r.nomineeSeat);
       const expanded = !!state.ui.expanded[key];
       const row = h('div', { class: 'nom' },
         h('div', { class: 'nomline', onclick: () => { state.ui.expanded[key] = !expanded; render(); } },
           h('span', { class: 'caret', text: expanded ? '▾' : '▸' }),
-          h('span', { class: 'who' }, h('b', { text: nominator }), ' → ', h('b', { text: nominee })),
+          h('span', { class: 'who' }, seatNameSpan(r.seatIds, r.nominatorSeat), ' → ', seatNameSpan(r.seatIds, r.nomineeSeat)),
           h('span', { class: 'tally', text: `${r.votesFor} vote${r.votesFor === 1 ? '' : 's'}` }),
           r.type && r.type !== 'regular' ? h('span', { class: 'badge', text: r.type }) : null,
         ),
       );
       if (expanded) {
-        const voters = r.voterSeats.map((s) => nameForSeat(r.seatIds, s));
+        const voterEls = r.voterSeats.map((s) => seatNameSpan(r.seatIds, s));
         row.appendChild(
           h('div', { class: 'voters' },
             h('span', { class: 'voterslabel', text: 'Voted: ' }),
-            voters.length ? voters.join(', ') : '(nobody)',
+            voterEls.length ? joinEls(voterEls, ', ') : '(nobody)',
           ),
         );
       }
@@ -314,9 +375,9 @@ function renderCallers() {
     wrap.appendChild(h('div', { class: 'dayhdr', text: day ? `Day ${day}` : 'Day —' }));
     const groups = (state.callersByDay[day] && state.callersByDay[day].groups) || [];
     if (groups.length) {
-      wrap.appendChild(h('div', { class: 'subhdr', text: 'Groups' }));
+      wrap.appendChild(h('div', { class: 'subhdr', text: 'Chats' }));
       for (const g of groups) {
-        wrap.appendChild(h('div', { class: 'grp', text: g.map(nameForId).join(', ') }));
+        wrap.appendChild(h('div', { class: 'grp' }, joinEls(g.map(idNameSpan), ' - ')));
       }
     }
     const whispers = state.whispersByDay[day] || [];
@@ -324,10 +385,57 @@ function renderCallers() {
       wrap.appendChild(h('div', { class: 'subhdr', text: 'Whispers' }));
       for (const w of whispers) {
         const [a, b] = w.split('|');
-        wrap.appendChild(h('div', { class: 'grp', text: `${nameForId(a)} ↔ ${nameForId(b)}` }));
+        wrap.appendChild(h('div', { class: 'grp' }, joinEls([idNameSpan(a), idNameSpan(b)], ' - ')));
       }
     }
   }
+  return wrap;
+}
+
+function fmtTime(ts) {
+  try {
+    return new Date(ts).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return '';
+  }
+}
+
+function renderHistory() {
+  const wrap = h('div', { class: 'tabbody' });
+  if (!state.archive.length) {
+    wrap.appendChild(h('div', { class: 'empty', text: 'No cleared logs yet. Cleared and finished games are archived here so nothing is lost.' }));
+    return wrap;
+  }
+  state.archive.forEach((a, i) => {
+    const noms = a.nominations ? a.nominations.length : 0;
+    const callerDays = a.callersByDay ? Object.keys(a.callersByDay).length : 0;
+    const key = `arch:${i}`;
+    const expanded = !!state.ui.expanded[key];
+    const entry = h('div', { class: 'nom' },
+      h('div', { class: 'nomline', onclick: () => { state.ui.expanded[key] = !expanded; render(); } },
+        h('span', { class: 'caret', text: expanded ? '▾' : '▸' }),
+        h('span', { class: 'who' },
+          h('b', { text: a.sessionName || 'game' }),
+          h('span', { class: 'archmeta', text: ` · ${fmtTime(a.at)}` }),
+        ),
+        h('span', { class: 'tally', text: `${noms} nom${noms === 1 ? '' : 's'}` }),
+      ),
+    );
+    if (expanded) {
+      const body = h('div', { class: 'archbody' });
+      if (!noms) body.appendChild(h('div', { class: 'voters', text: '(no nominations)' }));
+      for (const r of a.nominations || []) {
+        const names = (seat) => {
+          const id = r.seatIds && r.seatIds[seat];
+          return (id != null && (a.roster?.[String(id)] || state.roster[String(id)])) || `Seat ${seat + 1}`;
+        };
+        body.appendChild(h('div', { class: 'archnom', text: `D${r.dayNumber ?? '—'}: ${names(r.nominatorSeat)} → ${names(r.nomineeSeat)} (${r.votesFor})` }));
+      }
+      body.appendChild(h('div', { class: 'archmeta2', text: `${callerDays} day(s) of chats archived` }));
+      entry.appendChild(body);
+    }
+    wrap.appendChild(entry);
+  });
   return wrap;
 }
 
@@ -353,28 +461,82 @@ function render() {
 
   const container = h('div', { class: `panel ${state.ui.open ? '' : 'closed'}` }, header);
   if (state.ui.open) {
-    container.appendChild(h('div', { class: 'tabs' }, tab('votes', 'Nominations'), tab('callers', 'Callers')));
-    container.appendChild(state.ui.tab === 'votes' ? renderVotes() : renderCallers());
     container.appendChild(
-      h('div', { class: 'foot' },
-        h('button', { class: 'linkbtn', title: 'Clear the current log', onclick: clearLog, text: 'Clear' }),
-        h('span', { class: 'hint', text: state.sessionName ? state.sessionName : '' }),
+      h('div', { class: 'tabs' },
+        tab('votes', 'Nominations'),
+        tab('callers', 'Callers'),
+        tab('history', `History${state.archive.length ? ` (${state.archive.length})` : ''}`),
       ),
     );
+    const body = state.ui.tab === 'votes' ? renderVotes() : state.ui.tab === 'callers' ? renderCallers() : renderHistory();
+    container.appendChild(body);
+    container.appendChild(renderFooter());
   }
   app.appendChild(container);
   makeDraggable(header, host);
+  clampIntoView();
+}
+
+function renderFooter() {
+  if (state.ui.confirmClear) {
+    return h('div', { class: 'foot confirm' },
+      h('span', { class: 'confirmtext', text: 'Clear current log? It will be archived in History.' }),
+      h('button', { class: 'dangerbtn', onclick: doClear, text: 'Clear' }),
+      h('button', { class: 'linkbtn', onclick: () => { state.ui.confirmClear = false; render(); }, text: 'Cancel' }),
+    );
+  }
+  return h('div', { class: 'foot' },
+    h('button', {
+      class: 'linkbtn',
+      title: 'Clear the current log (archived to History)',
+      onclick: () => { state.ui.confirmClear = true; render(); },
+      text: 'Clear',
+    }),
+    h('span', { class: 'hint', text: state.sessionName ? state.sessionName : '' }),
+  );
 }
 
 function toggleOpen() { state.ui.open = !state.ui.open; save(); render(); }
 
-function clearLog() {
+// Snapshot the current log into the archive (newest first), if it holds anything.
+function archiveCurrent() {
+  const hasData = state.nominations.length || Object.keys(state.callersByDay).length || Object.keys(state.whispersByDay).length;
+  if (!hasData) return;
+  state.archive.unshift({
+    at: Date.now(),
+    sessionName: state.sessionName,
+    nominations: state.nominations,
+    callersByDay: state.callersByDay,
+    whispersByDay: state.whispersByDay,
+    roster: { ...state.roster },
+  });
+  if (state.archive.length > 30) state.archive.length = 30; // cap
+}
+
+function doClear() {
+  archiveCurrent();
+  state.ui.confirmClear = false;
   resetGame(state.gameKey);
   save();
   render();
 }
 
 // ---- panel bootstrap -------------------------------------------------------
+
+// Keep the panel fully within the viewport.
+function clampIntoView() {
+  if (!host) return;
+  const w = host.offsetWidth;
+  const hgt = host.offsetHeight;
+  const maxLeft = Math.max(0, window.innerWidth - w);
+  const maxTop = Math.max(0, window.innerHeight - hgt);
+  const rect = host.getBoundingClientRect();
+  const left = Math.min(maxLeft, Math.max(0, rect.left));
+  const top = Math.min(maxTop, Math.max(0, rect.top));
+  host.style.left = `${left}px`;
+  host.style.top = `${top}px`;
+  host.style.right = 'auto';
+}
 
 function makeDraggable(handle, hostEl) {
   if (handle._dragWired) return;
@@ -386,8 +548,12 @@ function makeDraggable(handle, hostEl) {
     const offX = e.clientX - rect.left;
     const offY = e.clientY - rect.top;
     const move = (me) => {
-      hostEl.style.left = `${Math.max(0, me.clientX - offX)}px`;
-      hostEl.style.top = `${Math.max(0, me.clientY - offY)}px`;
+      const maxLeft = Math.max(0, window.innerWidth - hostEl.offsetWidth);
+      const maxTop = Math.max(0, window.innerHeight - hostEl.offsetHeight);
+      const left = Math.min(maxLeft, Math.max(0, me.clientX - offX));
+      const top = Math.min(maxTop, Math.max(0, me.clientY - offY));
+      hostEl.style.left = `${left}px`;
+      hostEl.style.top = `${top}px`;
       hostEl.style.right = 'auto';
     };
     const up = () => {
@@ -398,6 +564,8 @@ function makeDraggable(handle, hostEl) {
     document.addEventListener('mouseup', up);
   });
 }
+
+window.addEventListener('resize', clampIntoView);
 
 function mount() {
   if (host && document.body.contains(host)) return;
