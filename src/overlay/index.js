@@ -4,7 +4,7 @@
 
 import { DIR, EV, REQ, post, parse } from '../shared/protocol.js';
 import { votersFromVotes, pairsFromGroups, pairKey } from '../lib/model.js';
-import { fetchRosterFromBackend } from '../lib/roster.js';
+import { fetchFullRoster } from '../lib/roster.js';
 import { PANEL_CSS } from './styles.js';
 
 const STORAGE_KEY = 'botc-tracker:current';
@@ -15,6 +15,7 @@ const state = {
   roster: {}, // id -> name
   selfId: null, // the logged-in user's id (highlight their name)
   storytellerIds: [], // ids of storytellers (highlight their names)
+  spectatorIds: [], // ids of spectators (marked with an eye; names via backend)
   phase: null, // {dayNumber, label, isDay}
   nominations: [], // resolved records (see collector NOMINATION_RESOLVED)
   live: null, // current live nomination or null
@@ -38,6 +39,7 @@ function save() {
           roster: state.roster,
           selfId: state.selfId,
           storytellerIds: state.storytellerIds,
+          spectatorIds: state.spectatorIds,
           phase: state.phase,
           nominations: state.nominations,
           callersByDay: state.callersByDay,
@@ -63,6 +65,7 @@ function restore() {
           roster: saved.roster ?? {},
           selfId: saved.selfId ?? null,
           storytellerIds: saved.storytellerIds ?? [],
+          spectatorIds: saved.spectatorIds ?? [],
           phase: saved.phase ?? null,
           nominations: saved.nominations ?? [],
           callersByDay: saved.callersByDay ?? {},
@@ -71,6 +74,10 @@ function restore() {
         });
         state.ui.open = saved.ui?.open ?? true;
         state.ui.tab = saved.ui?.tab ?? 'votes';
+        // Heal any names persisted before the video-tile fix; they re-resolve cleanly.
+        for (const id of Object.keys(state.roster)) {
+          if (/camera.*(paused|disabled)/i.test(state.roster[id])) delete state.roster[id];
+        }
       }
       render();
       // Ask the collector (which may have loaded first) for current state.
@@ -101,13 +108,19 @@ function idForSeat(seatIds, seat) {
   return id != null ? String(id) : null;
 }
 
-// A name as a styled <span>, highlighted if it's the user (nm-self) or a
-// storyteller (nm-st). Used in both the Nominations and Callers tabs.
+// A name as a styled <span>: highlighted for the user (nm-self) or a storyteller
+// (nm-st), and marked with an eye for a spectator (nm-spec). Used in both tabs.
 function nameSpan(id, name) {
+  const sid = id != null ? String(id) : null;
   const cls = ['nm'];
-  if (id != null && String(id) === String(state.selfId)) cls.push('nm-self');
-  if (id != null && state.storytellerIds.includes(String(id))) cls.push('nm-st');
-  return h('span', { class: cls.join(' '), text: name });
+  if (sid && sid === String(state.selfId)) cls.push('nm-self');
+  if (sid && state.storytellerIds.includes(sid)) cls.push('nm-st');
+  const isSpec = sid && state.spectatorIds.includes(sid);
+  if (isSpec) cls.push('nm-spec');
+  const span = h('span', { class: cls.join(' ') });
+  if (isSpec) span.appendChild(h('span', { class: 'eye', title: 'spectator', text: '👁' }));
+  span.appendChild(document.createTextNode(name));
+  return span;
 }
 
 function seatNameSpan(seatIds, seat) {
@@ -133,32 +146,43 @@ function joinEls(els, sep) {
 // Every token (seated players, storytellers, spectators-with-tiles) carries the
 // user id in its class as `id-<userId>` with the clean name in `.nameplate .name`.
 // `ul.circle > li` additionally gives seat order (seat index -> id).
+// The clean player name is always in `.nameplate .name`. We never read a bare
+// `.name`, because video tiles have a `.name`-ish element whose text includes
+// placeholder copy like "This player has their camera paused / disabled.".
+function nameplateName(el) {
+  const nameEl = el.querySelector('.nameplate .name');
+  const name = nameEl ? nameEl.textContent.trim() : '';
+  return name || null;
+}
+
 function scrapeRoster() {
   const roster = {};
-  // Broad pass: all id-<id> tokens -> id -> name. The regex rejects incidental
-  // substring matches (e.g. "grid-"), keeping only real `id-<digits>` tokens.
+  const seatIds = [];
+  // 1) Seated players from the town-square circle (authoritative + seat order).
+  const circle = document.querySelector('ul.circle, ul[class*="circle"]');
+  if (circle) {
+    [...circle.children].forEach((li, i) => {
+      const m = (li.className || '').match(/(?:^|\s)id-(\d+)/);
+      if (!m) return;
+      seatIds[i] = m[1];
+      const name = nameplateName(li);
+      if (name) roster[m[1]] = name;
+    });
+  }
+  // 2) Other tokens with a real nameplate (e.g. storytellers). Don't overwrite
+  //    circle names; strictly use the nameplate so video-tile text never leaks.
   document.querySelectorAll('[class*="id-"]').forEach((el) => {
     const m = (el.className || '').match(/(?:^|\s)id-(\d+)/);
-    if (!m) return;
-    const nameEl = el.querySelector('.nameplate .name') || el.querySelector('.name');
-    const name = nameEl ? nameEl.textContent.trim() : null;
-    if (name && !roster[m[1]]) roster[m[1]] = name;
+    if (!m || roster[m[1]]) return;
+    const name = nameplateName(el);
+    if (name) roster[m[1]] = name;
   });
-  // Storyteller ids: tokens carrying a "storyteller" class.
+  // Storyteller ids (tokens carrying a "storyteller" class).
   const storytellerIds = [];
   document.querySelectorAll('[class*="storyteller"]').forEach((el) => {
     const m = (el.className || '').match(/(?:^|\s)id-(\d+)/);
     if (m && !storytellerIds.includes(m[1])) storytellerIds.push(m[1]);
   });
-  // Seat order from the town-square circle.
-  const seatIds = [];
-  const circle = document.querySelector('ul.circle, ul[class*="circle"]');
-  if (circle) {
-    [...circle.children].forEach((li, i) => {
-      const m = (li.className || '').match(/(?:^|\s)id-(\d+)/);
-      if (m) seatIds[i] = m[1];
-    });
-  }
   if (!Object.keys(roster).length && !seatIds.length) return null;
   return { roster, seatIds, storytellerIds };
 }
@@ -187,17 +211,57 @@ function refreshRoster() {
   return changed;
 }
 
-async function ensureRoster() {
+function ensureRoster() {
   if (refreshRoster()) render();
-  // Backend fallback only if the DOM gave us nothing and we somehow know a name.
-  if (Object.keys(state.roster).length > 0) return;
-  if (!state.sessionName) return;
-  const map = await fetchRosterFromBackend(state.sessionName);
-  if (Object.keys(map).length) {
-    state.roster = { ...map, ...state.roster };
-    save();
-    render();
+  ensureFullRoster();
+}
+
+// Pull the complete roster (incl. spectators/STs) from the backend. Throttled,
+// since seated players already come from the DOM; this mainly names spectators.
+let lastFullFetch = 0;
+let fullFetchInFlight = false;
+async function ensureFullRoster(force) {
+  if (fullFetchInFlight) return;
+  if (!force && Date.now() - lastFullFetch < 12000) return;
+  fullFetchInFlight = true;
+  try {
+    const res = await fetchFullRoster({ selfId: state.selfId, seatIds: state.domSeatIds });
+    lastFullFetch = Date.now();
+    if (!res) return;
+    let changed = false;
+    for (const [id, name] of Object.entries(res.roster)) {
+      if (state.roster[id] !== name) {
+        state.roster[id] = name;
+        changed = true;
+      }
+    }
+    for (const id of res.spectatorIds) {
+      if (!state.spectatorIds.includes(id)) {
+        state.spectatorIds.push(id);
+        changed = true;
+      }
+    }
+    for (const id of res.storytellerIds) {
+      if (!state.storytellerIds.includes(id)) {
+        state.storytellerIds.push(id);
+        changed = true;
+      }
+    }
+    if (changed) {
+      save();
+      render();
+    }
+  } finally {
+    fullFetchInFlight = false;
   }
+}
+
+// True if any id in the current caller data has no name yet.
+function hasUnresolvedCallers(groups) {
+  for (const g of groups || []) {
+    for (const id of g.members || []) if (!state.roster[String(id)]) return true;
+  }
+  return false;
 }
 
 // ---- event handling --------------------------------------------------------
@@ -208,6 +272,8 @@ function resetGame(gameKey) {
   state.live = null;
   state.callersByDay = {};
   state.whispersByDay = {};
+  state.storytellerIds = [];
+  state.spectatorIds = [];
   state.ui.expanded = {};
 }
 
@@ -258,6 +324,8 @@ function onEvent(type, p) {
         const sig = g.members.join('|');
         if (!bucket.groups.some((x) => x.join('|') === sig)) bucket.groups.push(g.members.slice());
       }
+      // Spectators in a call have no board token -> fetch the full backend roster.
+      if (hasUnresolvedCallers(p.groups)) ensureFullRoster();
       break;
     }
     case EV.WHISPER: {
