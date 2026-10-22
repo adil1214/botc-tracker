@@ -4,7 +4,6 @@
 
 import { DIR, EV, REQ, post, parse } from '../shared/protocol.js';
 import { votersFromVotes, pairsFromGroups, pairKey } from '../lib/model.js';
-import { fetchFullRoster } from '../lib/roster.js';
 import { PANEL_CSS } from './styles.js';
 
 const STORAGE_KEY = 'botc-tracker:current';
@@ -15,7 +14,6 @@ const state = {
   roster: {}, // id -> name
   selfId: null, // the logged-in user's id (highlight their name)
   storytellerIds: [], // ids of storytellers (highlight their names)
-  spectatorIds: [], // ids of spectators (marked with an eye; names via backend)
   phase: null, // {dayNumber, label, isDay}
   nominations: [], // resolved records (see collector NOMINATION_RESOLVED)
   live: null, // current live nomination or null
@@ -39,7 +37,6 @@ function save() {
           roster: state.roster,
           selfId: state.selfId,
           storytellerIds: state.storytellerIds,
-          spectatorIds: state.spectatorIds,
           phase: state.phase,
           nominations: state.nominations,
           callersByDay: state.callersByDay,
@@ -65,7 +62,6 @@ function restore() {
           roster: saved.roster ?? {},
           selfId: saved.selfId ?? null,
           storytellerIds: saved.storytellerIds ?? [],
-          spectatorIds: saved.spectatorIds ?? [],
           phase: saved.phase ?? null,
           nominations: saved.nominations ?? [],
           callersByDay: saved.callersByDay ?? {},
@@ -107,30 +103,21 @@ function nameForSeat(seatIds, seat) {
   return `Seat ${seat + 1}`;
 }
 
-function nameForId(id) {
-  return state.roster[String(id)] || `#${id}`;
-}
-
 function idForSeat(seatIds, seat) {
   let id = seatIds && seatIds[seat];
   if (id == null && state.domSeatIds) id = state.domSeatIds[seat];
   return id != null ? String(id) : null;
 }
 
-// A name as a styled <span>: highlighted for the user (nm-self) or a storyteller
-// (nm-st), and marked with an eye for a spectator (nm-spec). Used in both tabs.
+// A name as a styled <span>, highlighted for the user (nm-self) or a storyteller
+// (nm-st). Used in both tabs.
 function nameSpan(id, name) {
   name = cleanName(name);
   const sid = id != null ? String(id) : null;
   const cls = ['nm'];
   if (sid && sid === String(state.selfId)) cls.push('nm-self');
   if (sid && state.storytellerIds.includes(sid)) cls.push('nm-st');
-  const isSpec = sid && state.spectatorIds.includes(sid);
-  if (isSpec) cls.push('nm-spec');
-  const span = h('span', { class: cls.join(' ') });
-  if (isSpec) span.appendChild(h('span', { class: 'eye', title: 'spectator', text: '👁' }));
-  span.appendChild(document.createTextNode(name));
-  return span;
+  return h('span', { class: cls.join(' '), text: name });
 }
 
 function seatNameSpan(seatIds, seat) {
@@ -138,8 +125,14 @@ function seatNameSpan(seatIds, seat) {
   return nameSpan(id, nameForSeat(seatIds, seat));
 }
 
+// Caller participant: a named player, or a generic "viewer" chip for a spectator
+// (an id with no board token, hence no resolved name).
 function idNameSpan(id) {
-  return nameSpan(id, nameForId(id));
+  const sid = String(id);
+  if (!state.roster[sid]) {
+    return h('span', { class: 'nm nm-viewer', title: 'spectator in the call', text: '👁 viewer' });
+  }
+  return nameSpan(sid, state.roster[sid]);
 }
 
 // Join an array of elements with a text separator into a fragment.
@@ -236,57 +229,11 @@ function refreshRoster() {
   return changed;
 }
 
+// Names come only from the town-square DOM (seated players + storytellers).
+// Anyone else in a voice call (a spectator) has no token and stays unnamed; the
+// Callers view shows them as a generic "viewer" chip instead of an id.
 function ensureRoster() {
   if (refreshRoster()) render();
-  ensureFullRoster();
-}
-
-// Pull the complete roster (incl. spectators/STs) from the backend. Throttled,
-// since seated players already come from the DOM; this mainly names spectators.
-let lastFullFetch = 0;
-let fullFetchInFlight = false;
-async function ensureFullRoster(force) {
-  if (fullFetchInFlight) return;
-  if (!force && Date.now() - lastFullFetch < 12000) return;
-  fullFetchInFlight = true;
-  try {
-    const res = await fetchFullRoster({ selfId: state.selfId, seatIds: state.domSeatIds });
-    lastFullFetch = Date.now();
-    if (!res) return;
-    let changed = false;
-    for (const [id, name] of Object.entries(res.roster)) {
-      if (state.roster[id] !== name) {
-        state.roster[id] = name;
-        changed = true;
-      }
-    }
-    for (const id of res.spectatorIds) {
-      if (!state.spectatorIds.includes(id)) {
-        state.spectatorIds.push(id);
-        changed = true;
-      }
-    }
-    for (const id of res.storytellerIds) {
-      if (!state.storytellerIds.includes(id)) {
-        state.storytellerIds.push(id);
-        changed = true;
-      }
-    }
-    if (changed) {
-      save();
-      render();
-    }
-  } finally {
-    fullFetchInFlight = false;
-  }
-}
-
-// True if any id in the current caller data has no name yet.
-function hasUnresolvedCallers(groups) {
-  for (const g of groups || []) {
-    for (const id of g.members || []) if (!state.roster[String(id)]) return true;
-  }
-  return false;
 }
 
 // ---- event handling --------------------------------------------------------
@@ -298,7 +245,6 @@ function resetGame(gameKey) {
   state.callersByDay = {};
   state.whispersByDay = {};
   state.storytellerIds = [];
-  state.spectatorIds = [];
   state.ui.expanded = {};
 }
 
@@ -349,8 +295,6 @@ function onEvent(type, p) {
         const sig = g.members.join('|');
         if (!bucket.groups.some((x) => x.join('|') === sig)) bucket.groups.push(g.members.slice());
       }
-      // Spectators in a call have no board token -> fetch the full backend roster.
-      if (hasUnresolvedCallers(p.groups)) ensureFullRoster();
       break;
     }
     case EV.WHISPER: {

@@ -74,8 +74,7 @@ export const PANEL_CSS = `
   background: rgba(150, 130, 255, 0.14); border-radius: 3px; padding: 0 3px;
 }
 .nm-self.nm-st { color: #ffd86b; background: rgba(150, 130, 255, 0.2); }
-.nm-spec { color: #9fb0a8; font-style: italic; }
-.eye { font-size: 10px; opacity: 0.85; margin-right: 2px; font-style: normal; }
+.nm-viewer { color: #8f9aa6; font-style: italic; }
 .who .nm { font-weight: 600; }
 .live {
   display: flex; align-items: center; gap: 7px;
