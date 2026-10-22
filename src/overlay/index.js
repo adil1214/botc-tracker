@@ -74,9 +74,9 @@ function restore() {
         });
         state.ui.open = saved.ui?.open ?? true;
         state.ui.tab = saved.ui?.tab ?? 'votes';
-        // Heal any names persisted before the video-tile fix; they re-resolve cleanly.
+        // Heal any names persisted before the video-tile fix.
         for (const id of Object.keys(state.roster)) {
-          if (/camera.*(paused|disabled)/i.test(state.roster[id])) delete state.roster[id];
+          state.roster[id] = cleanName(state.roster[id]);
         }
       }
       render();
@@ -89,6 +89,16 @@ function restore() {
 }
 
 // ---- name resolution -------------------------------------------------------
+
+// Strip video-tile placeholder copy that can prefix a name, e.g.
+// "This player has their camera paused / disabled.Aurora" -> "Aurora".
+function cleanName(s) {
+  if (!s) return s;
+  const out = s
+    .replace(/^.*?(?:this player has[^.]*|camera[^.]*?(?:paused|disabled)[^.]*?)\.\s*/i, '')
+    .trim();
+  return out || s.trim();
+}
 
 function nameForSeat(seatIds, seat) {
   let id = seatIds && seatIds[seat];
@@ -111,6 +121,7 @@ function idForSeat(seatIds, seat) {
 // A name as a styled <span>: highlighted for the user (nm-self) or a storyteller
 // (nm-st), and marked with an eye for a spectator (nm-spec). Used in both tabs.
 function nameSpan(id, name) {
+  name = cleanName(name);
   const sid = id != null ? String(id) : null;
   const cls = ['nm'];
   if (sid && sid === String(state.selfId)) cls.push('nm-self');
@@ -151,7 +162,7 @@ function joinEls(els, sep) {
 // placeholder copy like "This player has their camera paused / disabled.".
 function nameplateName(el) {
   const nameEl = el.querySelector('.nameplate .name');
-  const name = nameEl ? nameEl.textContent.trim() : '';
+  const name = nameEl ? cleanName(nameEl.textContent.trim()) : '';
   return name || null;
 }
 
@@ -495,7 +506,7 @@ function renderHistory() {
       for (const r of a.nominations || []) {
         const names = (seat) => {
           const id = r.seatIds && r.seatIds[seat];
-          return (id != null && (a.roster?.[String(id)] || state.roster[String(id)])) || `Seat ${seat + 1}`;
+          return cleanName((id != null && (a.roster?.[String(id)] || state.roster[String(id)])) || `Seat ${seat + 1}`);
         };
         body.appendChild(h('div', { class: 'archnom', text: `D${r.dayNumber ?? '—'}: ${names(r.nominatorSeat)} → ${names(r.nomineeSeat)} (${r.votesFor})` }));
       }
