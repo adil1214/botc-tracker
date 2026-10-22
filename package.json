@@ -1,0 +1,19 @@
+{
+  "name": "botc-tracker",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Chrome extension that tracks nominators, voters and private-chat 'callers' in a live game of Blood on the Clocktower (botc.app). Helpful for Town Crier & Flowergirl.",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src/"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "eslint": "^9.36.0",
+    "vitest": "^4.0.6"
+  }
+}

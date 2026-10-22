@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "BOTC Tracker",
+  "version": "0.1.0",
+  "description": "Tracks nominators, voters and private-chat callers in a live game of Blood on the Clocktower (botc.app). Helpful for Town Crier & Flowergirl.",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "*://botc.app/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["*://botc.app/*"],
+      "js": ["collector.js"],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["*://botc.app/*"],
+      "js": ["overlay.js"],
+      "run_at": "document_idle",
+      "world": "ISOLATED"
+    }
+  ]
+}
