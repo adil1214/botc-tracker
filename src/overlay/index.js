@@ -4,6 +4,7 @@
 
 import { DIR, EV, REQ, post, parse } from '../shared/protocol.js';
 import { votersFromVotes, pairsFromGroups, pairKey } from '../lib/model.js';
+import { fetchSessionName } from '../lib/session.js';
 import { PANEL_CSS } from './styles.js';
 
 const STORAGE_KEY = 'botc-tracker:current';
@@ -234,6 +235,23 @@ function refreshRoster() {
 // Callers view shows them as a generic "viewer" chip instead of an id.
 function ensureRoster() {
   if (refreshRoster()) render();
+  ensureSessionName();
+}
+
+// Fetch the lobby name once (for the History tab). Best-effort; falls back to
+// the storyteller's name in the UI if the backend can't be reached.
+let sessionNameTried = false;
+async function ensureSessionName() {
+  if (state.sessionName || sessionNameTried) return;
+  sessionNameTried = true;
+  const name = await fetchSessionName({ selfId: state.selfId, seatIds: state.domSeatIds });
+  if (name) {
+    state.sessionName = name;
+    save();
+    render();
+  } else {
+    sessionNameTried = false; // allow a later retry when we know more (selfId/seats)
+  }
 }
 
 // ---- event handling --------------------------------------------------------
@@ -448,12 +466,24 @@ function renderHistory() {
     const callerDays = a.callersByDay ? Object.keys(a.callersByDay).length : 0;
     const key = `arch:${i}`;
     const expanded = !!state.ui.expanded[key];
+    // Distinct rounds with activity, shown as "N1 N2".
+    const days = [
+      ...new Set(
+        [
+          ...(a.nominations || []).map((r) => r.dayNumber),
+          ...Object.keys(a.callersByDay || {}).map(Number),
+          ...Object.keys(a.whispersByDay || {}).map(Number),
+        ].filter((d) => d != null && !Number.isNaN(d)),
+      ),
+    ].sort((x, y) => x - y);
+    const nights = days.length ? days.map((d) => `N${d}`).join(' ') : '—';
+    const title = a.sessionName || (a.storytellers ? `${a.storytellers}’s game` : 'game');
     const entry = h('div', { class: 'nom' },
       h('div', { class: 'nomline', onclick: () => { state.ui.expanded[key] = !expanded; render(); } },
         h('span', { class: 'caret', text: expanded ? '▾' : '▸' }),
         h('span', { class: 'who' },
-          h('b', { text: a.sessionName || 'game' }),
-          h('span', { class: 'archmeta', text: ` · ${fmtTime(a.at)}` }),
+          h('b', { text: title }),
+          h('span', { class: 'archmeta', text: ` · ${nights}` }),
         ),
         h('span', { class: 'tally', text: `${noms} nom${noms === 1 ? '' : 's'}` }),
       ),
@@ -466,9 +496,9 @@ function renderHistory() {
           const id = r.seatIds && r.seatIds[seat];
           return cleanName((id != null && (a.roster?.[String(id)] || state.roster[String(id)])) || `Seat ${seat + 1}`);
         };
-        body.appendChild(h('div', { class: 'archnom', text: `D${r.dayNumber ?? '—'}: ${names(r.nominatorSeat)} → ${names(r.nomineeSeat)} (${r.votesFor})` }));
+        body.appendChild(h('div', { class: 'archnom', text: `N${r.dayNumber ?? '—'}: ${names(r.nominatorSeat)} → ${names(r.nomineeSeat)} (${r.votesFor})` }));
       }
-      body.appendChild(h('div', { class: 'archmeta2', text: `${callerDays} day(s) of chats archived` }));
+      body.appendChild(h('div', { class: 'archmeta2', text: `${fmtTime(a.at)} · ${callerDays} day(s) of chats` }));
       entry.appendChild(body);
     }
     wrap.appendChild(entry);
@@ -542,6 +572,7 @@ function archiveCurrent() {
   state.archive.unshift({
     at: Date.now(),
     sessionName: state.sessionName,
+    storytellers: state.storytellerIds.map((id) => state.roster[id]).filter(Boolean).join(', '),
     nominations: state.nominations,
     callersByDay: state.callersByDay,
     whispersByDay: state.whispersByDay,
