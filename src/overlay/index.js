@@ -90,13 +90,12 @@ function restore() {
 
 // ---- name resolution -------------------------------------------------------
 
-// Strip video-tile placeholder copy that can prefix a name, e.g.
-// "This player has their camera paused / disabled.Aurora" -> "Aurora".
+// Strip any leading "This player …" status sentence that video/voice tiles can
+// prefix onto a name, e.g. "This player is listening in the voice chat.Aurora"
+// or "This player has their camera paused / disabled.Aurora" -> "Aurora".
 function cleanName(s) {
   if (!s) return s;
-  const out = s
-    .replace(/^.*?(?:this player has[^.]*|camera[^.]*?(?:paused|disabled)[^.]*?)\.\s*/i, '')
-    .trim();
+  const out = s.replace(/^\s*this player\b[^.]*\.\s*/i, '').trim();
   return out || s.trim();
 }
 
@@ -162,7 +161,22 @@ function joinEls(els, sep) {
 // placeholder copy like "This player has their camera paused / disabled.".
 function nameplateName(el) {
   const nameEl = el.querySelector('.nameplate .name');
-  const name = nameEl ? cleanName(nameEl.textContent.trim()) : '';
+  if (!nameEl) return null;
+  // The real name sits in a <span>; sibling <div>s hold video/voice placeholder
+  // text. Pick the first span that isn't a "This player …" status line.
+  let name = '';
+  for (const sp of nameEl.querySelectorAll('span')) {
+    const t = sp.textContent.trim();
+    if (t && !/^this player\b/i.test(t)) {
+      name = t;
+      break;
+    }
+  }
+  if (!name) {
+    // Fallback: direct text nodes only (excludes nested placeholder elements).
+    for (const n of nameEl.childNodes) if (n.nodeType === 3) name += n.textContent;
+    name = cleanName(name.trim());
+  }
   return name || null;
 }
 
