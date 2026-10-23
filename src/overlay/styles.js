@@ -34,9 +34,9 @@ export const PANEL_CSS = `
 .iconbtn:hover { background: #3a2a18; }
 .tabs { display: flex; gap: 0; border-bottom: 1px solid #4a371f; }
 .tab {
-  flex: 1; padding: 6px 8px; cursor: pointer;
+  flex: 1; min-width: 0; padding: 6px 4px; cursor: pointer;
   background: transparent; color: #b9a988; border: none; border-bottom: 2px solid transparent;
-  font-size: 12px; font-weight: 600;
+  font-size: 11px; font-weight: 600; white-space: nowrap;
 }
 .tab:hover { color: #ece6d8; }
 .tab.active { color: #e8c37a; border-bottom-color: #e8c37a; }
@@ -75,6 +75,14 @@ export const PANEL_CSS = `
 }
 .nm-self.nm-st { color: #ffd86b; background: rgba(150, 130, 255, 0.2); }
 .nm-viewer { color: #8f9aa6; font-style: italic; }
+/* click-to-highlight (Callers tab): user-picked players, to see who talked to who */
+.nm-click { cursor: pointer; }
+.nm-click:hover { text-decoration: underline; }
+.nm-pick {
+  color: #052b27; background: #5ad1c0; font-weight: 700;
+  border-radius: 3px; padding: 0 3px; box-shadow: 0 0 0 1px #2f9d8c;
+}
+.nm-self.nm-pick, .nm-st.nm-pick { color: #052b27; background: #5ad1c0; }
 .who .nm { font-weight: 600; }
 .live {
   display: flex; align-items: center; gap: 7px;
@@ -90,6 +98,14 @@ export const PANEL_CSS = `
 }
 .linkbtn { background: none; border: none; color: #c98f6a; cursor: pointer; font-size: 11px; padding: 0; }
 .linkbtn:hover { color: #e0a884; text-decoration: underline; }
+.linkbtn.danger { color: #d98a6a; }
+.linkbtn.danger:hover { color: #f3a985; }
+/* per-entry delete (History tab) */
+.delbtn {
+  flex: none; border: none; background: none; color: #9a6a5a; cursor: pointer;
+  font-size: 12px; line-height: 1; padding: 1px 4px; border-radius: 4px;
+}
+.delbtn:hover { color: #fff; background: #8a2f1c; }
 .hint { margin-left: auto; color: #7c6f58; font-size: 11px; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* confirm-before-clear bar */

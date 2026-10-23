@@ -3,7 +3,7 @@
 // renders a panel, and persists the log to chrome.storage.local.
 
 import { DIR, EV, REQ, post, parse } from '../shared/protocol.js';
-import { votersFromVotes, pairsFromGroups, pairKey } from '../lib/model.js';
+import { votersFromVotes, pairsFromGroups, pairKey, uniqueVotersByDay } from '../lib/model.js';
 import { fetchSessionName } from '../lib/session.js';
 import { PANEL_CSS } from './styles.js';
 
@@ -21,7 +21,7 @@ const state = {
   callersByDay: {}, // dayNumber -> { groups: string[][] (ids), pairs: string[] }
   whispersByDay: {}, // dayNumber -> string[] (pair keys)
   archive: [], // past cleared logs: { at, sessionName, nominations, callersByDay, whispersByDay, roster }
-  ui: { open: true, tab: 'votes', expanded: {}, confirmClear: false },
+  ui: { open: true, tab: 'votes', expanded: {}, confirmClear: false, confirmClearHistory: false, highlightCallers: [] },
 };
 
 // ---- persistence -----------------------------------------------------------
@@ -126,14 +126,37 @@ function seatNameSpan(seatIds, seat) {
   return nameSpan(id, nameForSeat(seatIds, seat));
 }
 
-// Caller participant: a named player, or a generic "viewer" chip for a spectator
-// (an id with no board token, hence no resolved name).
-function idNameSpan(id) {
+// Callers-tab participant chip: a named player (clickable to toggle a manual
+// highlight, so the user can pick a player and see every chat they were in at a
+// glance), or a generic "viewer" chip for a spectator (an id with no board
+// token, hence no resolved name — not highlightable).
+function callerChip(id) {
   const sid = String(id);
   if (!state.roster[sid]) {
     return h('span', { class: 'nm nm-viewer', title: 'spectator in the call', text: '👁 viewer' });
   }
-  return nameSpan(sid, state.roster[sid]);
+  const span = nameSpan(sid, state.roster[sid]);
+  span.classList.add('nm-click');
+  if (state.ui.highlightCallers.includes(sid)) span.classList.add('nm-pick');
+  span.title = 'Click to highlight this player across the Callers tab';
+  span.addEventListener('click', () => toggleCallerHighlight(sid));
+  return span;
+}
+
+function toggleCallerHighlight(id) {
+  const sid = String(id);
+  const arr = state.ui.highlightCallers;
+  const i = arr.indexOf(sid);
+  if (i >= 0) arr.splice(i, 1);
+  else arr.push(sid);
+  render();
+}
+
+// Voters-tab chip for one unique voter ({id, seat}). Resolve by id when known
+// (so highlights carry over), else fall back to the seat label.
+function voterChip(v) {
+  if (v.id != null) return nameSpan(v.id, state.roster[String(v.id)] || `#${v.id}`);
+  return h('span', { class: 'nm', text: `Seat ${v.seat + 1}` });
 }
 
 // Join an array of elements with a text separator into a fragment.
@@ -264,6 +287,7 @@ function resetGame(gameKey) {
   state.whispersByDay = {};
   state.storytellerIds = [];
   state.ui.expanded = {};
+  state.ui.highlightCallers = [];
 }
 
 function onEvent(type, p) {
@@ -419,6 +443,23 @@ function renderVotes() {
   return wrap;
 }
 
+function renderVoters() {
+  const wrap = h('div', { class: 'tabbody' });
+  const byDay = uniqueVotersByDay(state.nominations);
+  if (!byDay.size) {
+    wrap.appendChild(h('div', { class: 'empty', text: 'No votes yet. Each day’s unique voters will be listed here.' }));
+    return wrap;
+  }
+  for (const day of [...byDay.keys()].sort((a, b) => b - a)) {
+    const voters = byDay.get(day);
+    wrap.appendChild(h('div', { class: 'dayhdr', text: day ? `Day ${day}` : 'Day —' }));
+    wrap.appendChild(h('div', { class: 'subhdr', text: `${voters.length} unique voter${voters.length === 1 ? '' : 's'}` }));
+    const chips = voters.map(voterChip);
+    wrap.appendChild(h('div', { class: 'grp' }, chips.length ? joinEls(chips, ', ') : '(nobody)'));
+  }
+  return wrap;
+}
+
 function renderCallers() {
   const wrap = h('div', { class: 'tabbody' });
   const days = new Set([...Object.keys(state.callersByDay), ...Object.keys(state.whispersByDay)].map(Number));
@@ -432,7 +473,7 @@ function renderCallers() {
     if (groups.length) {
       wrap.appendChild(h('div', { class: 'subhdr', text: 'Chats' }));
       for (const g of groups) {
-        wrap.appendChild(h('div', { class: 'grp' }, joinEls(g.map(idNameSpan), ' - ')));
+        wrap.appendChild(h('div', { class: 'grp' }, joinEls(g.map(callerChip), ', ')));
       }
     }
     const whispers = state.whispersByDay[day] || [];
@@ -440,7 +481,7 @@ function renderCallers() {
       wrap.appendChild(h('div', { class: 'subhdr', text: 'Whispers' }));
       for (const w of whispers) {
         const [a, b] = w.split('|');
-        wrap.appendChild(h('div', { class: 'grp' }, joinEls([idNameSpan(a), idNameSpan(b)], ' - ')));
+        wrap.appendChild(h('div', { class: 'grp' }, joinEls([callerChip(a), callerChip(b)], ', ')));
       }
     }
   }
@@ -486,6 +527,12 @@ function renderHistory() {
           h('span', { class: 'archmeta', text: ` · ${nights}` }),
         ),
         h('span', { class: 'tally', text: `${noms} nom${noms === 1 ? '' : 's'}` }),
+        h('button', {
+          class: 'delbtn',
+          title: 'Delete this archived game',
+          onclick: (e) => { e.stopPropagation(); removeArchive(i); },
+          text: '✕',
+        }),
       ),
     );
     if (expanded) {
@@ -531,11 +578,16 @@ function render() {
     container.appendChild(
       h('div', { class: 'tabs' },
         tab('votes', 'Nominations'),
+        tab('voters', 'Voters'),
         tab('callers', 'Callers'),
         tab('history', `History${state.archive.length ? ` (${state.archive.length})` : ''}`),
       ),
     );
-    const body = state.ui.tab === 'votes' ? renderVotes() : state.ui.tab === 'callers' ? renderCallers() : renderHistory();
+    const body =
+      state.ui.tab === 'votes' ? renderVotes()
+        : state.ui.tab === 'voters' ? renderVoters()
+          : state.ui.tab === 'callers' ? renderCallers()
+            : renderHistory();
     container.appendChild(body);
     container.appendChild(renderFooter());
   }
@@ -545,6 +597,32 @@ function render() {
 }
 
 function renderFooter() {
+  const onHistory = state.ui.tab === 'history';
+
+  // On the History tab, the footer action manages the archive instead of the
+  // current log (clearing the current log from here would be confusing).
+  if (onHistory) {
+    if (state.ui.confirmClearHistory) {
+      const n = state.archive.length;
+      return h('div', { class: 'foot confirm' },
+        h('span', { class: 'confirmtext', text: `Delete all ${n} archived game${n === 1 ? '' : 's'}? This can’t be undone.` }),
+        h('button', { class: 'dangerbtn', onclick: doClearHistory, text: 'Delete all' }),
+        h('button', { class: 'linkbtn', onclick: () => { state.ui.confirmClearHistory = false; render(); }, text: 'Cancel' }),
+      );
+    }
+    return h('div', { class: 'foot' },
+      state.archive.length
+        ? h('button', {
+            class: 'linkbtn danger',
+            title: 'Delete all archived games',
+            onclick: () => { state.ui.confirmClearHistory = true; render(); },
+            text: 'Clear history',
+          })
+        : null,
+      h('span', { class: 'hint', text: state.archive.length ? `${state.archive.length} archived` : 'nothing archived' }),
+    );
+  }
+
   if (state.ui.confirmClear) {
     return h('div', { class: 'foot confirm' },
       h('span', { class: 'confirmtext', text: 'Clear current log? It will be archived in History.' }),
@@ -587,6 +665,31 @@ function doClear() {
   resetGame(state.gameKey);
   save();
   render();
+}
+
+// Clear the whole History archive (confirmed in the footer).
+function doClearHistory() {
+  state.archive = [];
+  state.ui.confirmClearHistory = false;
+  dropArchiveExpandFlags();
+  save();
+  render();
+}
+
+// Remove a single archived game by index.
+function removeArchive(index) {
+  state.archive.splice(index, 1);
+  // Expand flags are keyed by index, so remaining entries would shift under
+  // them — simplest correct fix is to collapse all archive rows.
+  dropArchiveExpandFlags();
+  save();
+  render();
+}
+
+function dropArchiveExpandFlags() {
+  for (const k of Object.keys(state.ui.expanded)) {
+    if (k.startsWith('arch:')) delete state.ui.expanded[k];
+  }
 }
 
 // ---- panel bootstrap -------------------------------------------------------

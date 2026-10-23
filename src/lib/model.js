@@ -47,6 +47,38 @@ export function votersFromVotes(votes) {
 }
 
 /**
+ * Unique voters per day across all of that day's nominations.
+ * A voter is identified by their user id (resolved from the nomination's seatIds),
+ * so the same player voting in several nominations is counted once. Falls back to
+ * the seat index when an id wasn't captured for that seat.
+ * @param {Array<{dayNumber?:number, voterSeats?:number[], seatIds?:Array}>} nominations
+ * @returns {Map<number, Array<{id:(string|null), seat:number}>>} day -> voters (seat order)
+ */
+export function uniqueVotersByDay(nominations) {
+  const byDay = new Map();
+  for (const r of nominations || []) {
+    const day = r.dayNumber ?? 0;
+    if (!byDay.has(day)) byDay.set(day, { seen: new Set(), voters: [] });
+    const bucket = byDay.get(day);
+    const seatIds = r.seatIds || [];
+    for (const seat of r.voterSeats || []) {
+      const rawId = seatIds[seat];
+      const id = rawId != null ? String(rawId) : null;
+      const key = id != null ? `id:${id}` : `seat:${seat}`;
+      if (bucket.seen.has(key)) continue;
+      bucket.seen.add(key);
+      bucket.voters.push({ id, seat });
+    }
+  }
+  const out = new Map();
+  for (const [day, b] of byDay) {
+    b.voters.sort((x, y) => x.seat - y.seat);
+    out.set(day, b.voters);
+  }
+  return out;
+}
+
+/**
  * Turn a tracked nomination into a finalized, serializable record.
  * @param {{nominatorSeat:number, nomineeSeat:number, type?:string, dayNumber?:number,
  *          votes?:Array, startedAt?:number}} rec

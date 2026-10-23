@@ -7,6 +7,7 @@ import {
   groupUserChannels,
   pairsFromGroups,
   pairKey,
+  uniqueVotersByDay,
 } from '../src/lib/model.js';
 
 describe('phaseToDay', () => {
@@ -55,6 +56,41 @@ describe('votersFromVotes + finalizeNomination (captured live fixture)', () => {
     expect(rec.votesFor).toBe(9);
     expect(rec.voterSeats).toEqual([0, 1, 2, 3, 5, 8, 11, 12, 13]);
     expect(rec.dayNumber).toBe(3);
+  });
+});
+
+describe('uniqueVotersByDay', () => {
+  const seatIds = ['a', 'b', 'c', 'd'];
+  const nominations = [
+    { dayNumber: 1, seatIds, voterSeats: [0, 2] }, // a, c
+    { dayNumber: 1, seatIds, voterSeats: [2, 3] }, // c (dup), d
+    { dayNumber: 2, seatIds, voterSeats: [1] }, // b
+  ];
+
+  it('unions each day’s voters by id and lists them in seat order', () => {
+    const byDay = uniqueVotersByDay(nominations);
+    expect(byDay.get(1)).toEqual([
+      { id: 'a', seat: 0 },
+      { id: 'c', seat: 2 },
+      { id: 'd', seat: 3 },
+    ]);
+    expect(byDay.get(2)).toEqual([{ id: 'b', seat: 1 }]);
+  });
+
+  it('counts a player once even across several nominations the same day', () => {
+    expect(uniqueVotersByDay(nominations).get(1)).toHaveLength(3);
+  });
+
+  it('falls back to the seat when no id was captured for it', () => {
+    const byDay = uniqueVotersByDay([{ dayNumber: 1, seatIds: ['a'], voterSeats: [0, 5] }]);
+    expect(byDay.get(1)).toEqual([
+      { id: 'a', seat: 0 },
+      { id: null, seat: 5 },
+    ]);
+  });
+
+  it('is empty for no nominations', () => {
+    expect(uniqueVotersByDay([]).size).toBe(0);
   });
 });
 

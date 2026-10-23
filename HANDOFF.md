@@ -10,8 +10,12 @@ A Chrome MV3 extension at `C:\Users\User\Desktop\projects\botc-tracker` that, du
 1. **Nominations** (per day): who nominated whom, vote count, and the full voter list on expand. This is the
    cheat sheet for the **Town Crier** (did a Minion nominate?) and **Flowergirl** (did the Demon vote?). The
    tool only logs public facts; it does not know other players' roles.
-2. **Callers** ("who talked to who"): private voice-chat groups shown as `name1 - name2`, plus whispers.
-3. **History**: finished/cleared games are archived (lobby name + `N1 N2` night labels + nominations).
+2. **Voters** (per day): the de-duplicated set of players who voted that day (union across all of the
+   day's nominations), with a count.
+3. **Callers** ("who talked to who"): private voice-chat groups shown as `name1, name2`, plus whispers.
+   Clicking a name toggles a highlight on that player across the whole Callers tab, so you can pick
+   someone and see every chat they were in at a glance.
+4. **History**: finished/cleared games are archived (lobby name + `N1 N2` night labels + nominations).
 
 Sibling repo `../botc-friends` targets the same site (lobby friend-highlighting only); we reused its
 manifest + `/backend/token`→`/backend/sessions` pattern, nothing else.
@@ -84,8 +88,11 @@ own log). Two content scripts, bridged by `window.postMessage`:
 
 ## Features implemented
 
-Nominations tab (live + per-day log, expandable voters) · Callers tab (`name1 - name2` groups + whispers) ·
-History tab (lobby name / storyteller fallback, `N1 N2` nights, expandable) · name highlights (self = gold
+Nominations tab (live + per-day log, expandable voters) · Voters tab (per-day unique voter set +
+count; pure `uniqueVotersByDay` in model.js) · Callers tab (`name1, name2` groups + whispers;
+click a name to toggle a teal `nm-pick` highlight across the tab — ephemeral, cleared on game reset) ·
+History tab (lobby name / storyteller fallback, `N1 N2` nights, expandable; per-entry ✕ delete +
+confirmed "Clear history" bulk-wipe in the footer when the tab is active) · name highlights (self = gold
 `nm-self`, storyteller = purple `nm-st`) · spectator `👁 viewer` chip · confirm-before-Clear with auto-archive
 (manual Clear and on game reset) · draggable panel clamped to the viewport · persistence across refresh.
 
