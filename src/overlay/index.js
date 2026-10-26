@@ -21,7 +21,7 @@ const state = {
   callersByDay: {}, // dayNumber -> { groups: string[][] (ids), pairs: string[] }
   whispersByDay: {}, // dayNumber -> string[] (pair keys)
   archive: [], // past cleared logs: { at, sessionName, nominations, callersByDay, whispersByDay, roster }
-  ui: { open: true, tab: 'votes', expanded: {}, confirmClear: false, confirmClearHistory: false, highlightCallers: [] },
+  ui: { open: true, tab: 'votes', expanded: {}, confirmClear: false, confirmClearHistory: false, highlightCallers: [], voterColors: {} },
 };
 
 // ---- persistence -----------------------------------------------------------
@@ -152,11 +152,39 @@ function toggleCallerHighlight(id) {
   render();
 }
 
+// How many distinct highlight colours the Voters tab offers (see .vc-N in styles).
+const VOTER_PALETTE = 8;
+
 // Voters-tab chip for one unique voter ({id, seat}). Resolve by id when known
-// (so highlights carry over), else fall back to the seat label.
+// (so highlights carry over), else fall back to the seat label. Id-identified
+// voters are clickable: picking one gives it a stable colour that marks that
+// player in every day's list, so you can trace individuals' voting over a game.
 function voterChip(v) {
-  if (v.id != null) return nameSpan(v.id, state.roster[String(v.id)] || `#${v.id}`);
-  return h('span', { class: 'nm', text: `Seat ${v.seat + 1}` });
+  if (v.id == null) return h('span', { class: 'nm', text: `Seat ${v.seat + 1}` });
+  const sid = String(v.id);
+  const span = nameSpan(sid, state.roster[sid] || `#${sid}`);
+  span.classList.add('nm-click');
+  span.title = 'Click to highlight this voter across every day';
+  if (sid in state.ui.voterColors) span.classList.add('nm-vpick', `vc-${state.ui.voterColors[sid]}`);
+  span.addEventListener('click', () => toggleVoterHighlight(sid));
+  return span;
+}
+
+// Toggle a Voters-tab highlight. Each picked voter is assigned the lowest free
+// palette slot, so colours stay stable as others are added or removed; freed
+// slots are reused, and picks beyond the palette wrap around (share a colour).
+function toggleVoterHighlight(id) {
+  const sid = String(id);
+  const colors = state.ui.voterColors;
+  if (sid in colors) {
+    delete colors[sid];
+  } else {
+    const used = new Set(Object.values(colors));
+    let slot = 0;
+    while (used.has(slot)) slot++;
+    colors[sid] = slot % VOTER_PALETTE;
+  }
+  render();
 }
 
 // Join an array of elements with a text separator into a fragment.
@@ -288,6 +316,7 @@ function resetGame(gameKey) {
   state.storytellerIds = [];
   state.ui.expanded = {};
   state.ui.highlightCallers = [];
+  state.ui.voterColors = {};
 }
 
 function onEvent(type, p) {
@@ -553,11 +582,19 @@ function renderHistory() {
   return wrap;
 }
 
+let renderedTab = null;
+
 function render() {
   if (!root) return;
   refreshRoster(); // keep names current from the town-square DOM
   const app = root.getElementById('app');
   if (!app) return;
+  // render() rebuilds the whole panel, which would reset the scroll position to
+  // the top on every incoming event / roster refresh. Capture the body's scroll
+  // and restore it after the rebuild, but only while the same tab is showing
+  // (switching tabs should start at the top).
+  const prevBody = app.querySelector('.tabbody');
+  const prevScroll = prevBody && renderedTab === state.ui.tab ? prevBody.scrollTop : 0;
   app.innerHTML = '';
 
   const tab = (id, label) =>
@@ -592,6 +629,9 @@ function render() {
     container.appendChild(renderFooter());
   }
   app.appendChild(container);
+  const newBody = app.querySelector('.tabbody');
+  if (newBody && prevScroll) newBody.scrollTop = prevScroll;
+  renderedTab = state.ui.tab;
   makeDraggable(header, host);
   clampIntoView();
 }

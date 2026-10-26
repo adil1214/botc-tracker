@@ -83,6 +83,21 @@ export const PANEL_CSS = `
   border-radius: 3px; padding: 0 3px; box-shadow: 0 0 0 1px #2f9d8c;
 }
 .nm-self.nm-pick, .nm-st.nm-pick { color: #052b27; background: #5ad1c0; }
+/* click-to-highlight (Voters tab): each picked voter keeps a distinct colour
+   (vc-0..vc-7) in every day's list, so individuals can be traced across a game.
+   Defined after .nm-self/.nm-st so a picked voter's colour wins for those too. */
+.nm-vpick {
+  color: #1a120c; font-weight: 700;
+  border-radius: 3px; padding: 0 3px; box-shadow: 0 0 0 1px rgba(0, 0, 0, .35);
+}
+.vc-0 { background: #4fd1c5; }
+.vc-1 { background: #f6ad55; }
+.vc-2 { background: #f687b3; }
+.vc-3 { background: #9ae6b4; }
+.vc-4 { background: #63b3ed; }
+.vc-5 { background: #b794f4; }
+.vc-6 { background: #f6e05e; }
+.vc-7 { background: #fc8181; }
 .who .nm { font-weight: 600; }
 .live {
   display: flex; align-items: center; gap: 7px;
