@@ -8,7 +8,27 @@ import {
   pairsFromGroups,
   pairKey,
   uniqueVotersByDay,
+  normalizeCallersByDay,
 } from '../src/lib/model.js';
+
+describe('normalizeCallersByDay', () => {
+  it('migrates the old { channel, members } group shape to id arrays', () => {
+    const old = { 1: { groups: [{ channel: 'c1', members: ['a', 'b'] }], pairs: ['a|b'] } };
+    expect(normalizeCallersByDay(old)).toEqual({ 1: { groups: [['a', 'b']], pairs: ['a|b'] } });
+  });
+
+  it('passes through the current string[][] shape unchanged', () => {
+    const cur = { 2: { groups: [['x', 'y']], pairs: ['x|y'] } };
+    expect(normalizeCallersByDay(cur)).toEqual(cur);
+  });
+
+  it('is defensive about missing/malformed input', () => {
+    expect(normalizeCallersByDay(null)).toEqual({});
+    expect(normalizeCallersByDay({ 3: {} })).toEqual({ 3: { groups: [], pairs: [] } });
+    expect(normalizeCallersByDay({ 4: { groups: [null, 5, 'z'] } }))
+      .toEqual({ 4: { groups: [], pairs: [] } });
+  });
+});
 
 describe('phaseToDay', () => {
   it('labels setup, nights and days like the official app', () => {

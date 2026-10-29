@@ -3,7 +3,7 @@
 // renders a panel, and persists the log to chrome.storage.local.
 
 import { DIR, EV, REQ, post, parse } from '../shared/protocol.js';
-import { votersFromVotes, pairsFromGroups, pairKey, uniqueVotersByDay } from '../lib/model.js';
+import { votersFromVotes, pairsFromGroups, pairKey, uniqueVotersByDay, normalizeCallersByDay } from '../lib/model.js';
 import { fetchSessionName } from '../lib/session.js';
 import { PANEL_CSS } from './styles.js';
 
@@ -65,9 +65,10 @@ function restore() {
           storytellerIds: saved.storytellerIds ?? [],
           phase: saved.phase ?? null,
           nominations: saved.nominations ?? [],
-          callersByDay: saved.callersByDay ?? {},
+          callersByDay: normalizeCallersByDay(saved.callersByDay),
           whispersByDay: saved.whispersByDay ?? {},
-          archive: saved.archive ?? [],
+          archive: (saved.archive ?? []).map((a) =>
+            a && a.callersByDay ? { ...a, callersByDay: normalizeCallersByDay(a.callersByDay) } : a),
         });
         state.ui.open = saved.ui?.open ?? true;
         state.ui.tab = saved.ui?.tab ?? 'votes';
@@ -411,6 +412,31 @@ function h(tag, attrs, ...children) {
   return el;
 }
 
+// Small inline wraith mark beside the panel title (mirrors the extension icon).
+function markEl() {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('class', 'mark');
+  svg.setAttribute('viewBox', '0 0 128 128');
+  svg.setAttribute('aria-hidden', 'true');
+  const body = document.createElementNS(NS, 'path');
+  body.setAttribute('fill-rule', 'evenodd');
+  body.setAttribute('d',
+    'M64 19 C47 19 37 33 36 51 C35 62 29 73 25 90 C23 98 23 103 26 103 C32 103 33 99 38 101 '
+    + 'C43 103 44 99 50 101 C56 103 57 99 64 101 C71 103 72 99 78 101 C84 103 85 99 90 101 '
+    + 'C95 99 96 103 102 103 C105 103 105 98 103 90 C99 73 93 62 92 51 C91 33 81 19 64 19 Z'
+    + ' M64 33 C53 33 47 44 47 56 C47 68 54 75 64 75 C74 75 81 68 81 56 C81 44 75 33 64 33 Z');
+  svg.appendChild(body);
+  for (const cx of [57, 71]) {
+    const eye = document.createElementNS(NS, 'circle');
+    eye.setAttribute('cx', cx);
+    eye.setAttribute('cy', 55);
+    eye.setAttribute('r', 3.2);
+    svg.appendChild(eye);
+  }
+  return svg;
+}
+
 function byDay(records, dayOf) {
   const map = new Map();
   for (const r of records) {
@@ -502,7 +528,8 @@ function renderCallers() {
     if (groups.length) {
       wrap.appendChild(h('div', { class: 'subhdr', text: 'Chats' }));
       for (const g of groups) {
-        wrap.appendChild(h('div', { class: 'grp' }, joinEls(g.map(callerChip), ', ')));
+        const members = Array.isArray(g) ? g : (g && g.members) || [];
+        wrap.appendChild(h('div', { class: 'grp' }, joinEls(members.map(callerChip), ', ')));
       }
     }
     const whispers = state.whispersByDay[day] || [];
@@ -605,6 +632,7 @@ function render() {
     });
 
   const header = h('div', { class: 'hdr' },
+    markEl(),
     h('span', { class: 'title', text: 'BOTC Tracker' }),
     h('span', { class: 'phase', text: state.phase ? state.phase.label : '' }),
     h('button', { class: 'iconbtn', title: 'Collapse', onclick: toggleOpen, text: state.ui.open ? '–' : '+' }),

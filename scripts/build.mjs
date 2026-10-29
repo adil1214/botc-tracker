@@ -29,7 +29,12 @@ const common = {
 async function copyStatic() {
   await cp(join(root, 'public'), outdir, { recursive: true });
   if (existsSync(join(root, 'icons'))) {
-    await cp(join(root, 'icons'), join(outdir, 'assets/icons'), { recursive: true });
+    // Copy only the rasterized PNGs into the package; wraith.svg is the design
+    // source and stays out of the shipped extension.
+    await cp(join(root, 'icons'), join(outdir, 'assets/icons'), {
+      recursive: true,
+      filter: (src) => !src.toLowerCase().endsWith('.svg'),
+    });
   }
 }
 

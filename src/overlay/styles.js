@@ -24,6 +24,7 @@ export const PANEL_CSS = `
   border-bottom: 1px solid #6b4f2a;
   cursor: move; user-select: none;
 }
+.mark { width: 15px; height: 15px; flex: none; fill: #e8c37a; }
 .title { font-weight: 700; letter-spacing: .3px; color: #e8c37a; white-space: nowrap; }
 .phase { margin-left: auto; font-size: 11px; color: #c9a86a; white-space: nowrap; }
 .iconbtn {

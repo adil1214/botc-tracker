@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="BOTC Tracker">
+  <!-- Original wraith-inspired mark: a hooded spectral figure. Not the BOTC token art. -->
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="36%" r="78%">
+      <stop offset="0%" stop-color="#2d1a33"/>
+      <stop offset="62%" stop-color="#1c1024"/>
+      <stop offset="100%" stop-color="#0f0817"/>
+    </radialGradient>
+    <linearGradient id="cloak" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f6efdd"/>
+      <stop offset="100%" stop-color="#cdbf9a"/>
+    </linearGradient>
+    <radialGradient id="eye" cx="50%" cy="50%" r="60%">
+      <stop offset="0%" stop-color="#ffe9a8"/>
+      <stop offset="100%" stop-color="#d79a2c"/>
+    </radialGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="2.6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <circle cx="64" cy="64" r="63" fill="url(#bg)"/>
+  <circle cx="64" cy="64" r="60" fill="none" stroke="#c9a86a" stroke-opacity="0.55" stroke-width="2.5"/>
+  <path filter="url(#glow)" fill="url(#cloak)"
+    d="M64 19 C47 19 37 33 36 51 C35 62 29 73 25 90 C23 98 23 103 26 103 C32 103 33 99 38 101 C43 103 44 99 50 101 C56 103 57 99 64 101 C71 103 72 99 78 101 C84 103 85 99 90 101 C95 99 96 103 102 103 C105 103 105 98 103 90 C99 73 93 62 92 51 C91 33 81 19 64 19 Z"/>
+  <path fill="#120a1c"
+    d="M64 33 C53 33 47 44 47 56 C47 68 54 75 64 75 C74 75 81 68 81 56 C81 44 75 33 64 33 Z"/>
+  <circle cx="57" cy="55" r="3.2" fill="url(#eye)"/>
+  <circle cx="71" cy="55" r="3.2" fill="url(#eye)"/>
+</svg>

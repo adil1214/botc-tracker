@@ -143,3 +143,27 @@ export function pairsFromGroups(groups) {
   }
   return [...set];
 }
+
+/**
+ * Normalize a persisted callersByDay map to the current shape. Older builds
+ * stored each group as a { channel, members } object; newer ones store plain
+ * id arrays (string[][]). Convert the old shape and drop anything malformed so
+ * callers can treat every group uniformly as a string[].
+ * @param {Record<string, {groups?: any[], pairs?: any[]}>} cbd
+ * @returns {Record<string, {groups: string[][], pairs: string[]}>}
+ */
+export function normalizeCallersByDay(cbd) {
+  const out = {};
+  if (!cbd || typeof cbd !== 'object') return out;
+  for (const day of Object.keys(cbd)) {
+    const bucket = cbd[day] || {};
+    const groups = Array.isArray(bucket.groups) ? bucket.groups : [];
+    out[day] = {
+      groups: groups
+        .map((g) => (Array.isArray(g) ? g : g && Array.isArray(g.members) ? g.members : null))
+        .filter(Array.isArray),
+      pairs: Array.isArray(bucket.pairs) ? bucket.pairs : [],
+    };
+  }
+  return out;
+}

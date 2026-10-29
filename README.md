@@ -74,7 +74,7 @@ src/collector.js         MAIN-world Vuex subscriber -> emits nomination/vote/cal
 src/overlay/index.js     ISOLATED-world UI: receives events, resolves names, renders panel, persists
 src/overlay/styles.js    panel CSS (scoped in a shadow root)
 src/lib/model.js         pure, tested logic (vote parsing, caller grouping, phase->day)
-src/lib/roster.js        backend id->name fallback (/backend/token -> /backend/sessions/<name>)
+src/lib/session.js       backend lobby-name fallback (/backend/token -> /backend/sessions)
 src/shared/protocol.js   postMessage protocol between the two content scripts
 scripts/build.mjs        esbuild bundler (one self-contained IIFE per content script) + static copy
 tests/model.test.js      unit tests, incl. a fixture captured from a real botc.app game
