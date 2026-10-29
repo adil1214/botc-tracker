@@ -207,19 +207,24 @@ function handleChat(state) {
   const chat = state.chat;
   if (!chat) return;
   try {
+    // Private calls/whispers happen in both the night and the day. This build
+    // only tracks day-time callers, so ignore all chat activity unless we're in
+    // a day phase (even phase); night calls are never recorded or shown.
+    const { dayNumber, isDay } = phaseToDay(state.game && state.game.phase);
+    if (!isDay) return;
     const uc = chat.userChannels;
     const entries = uc instanceof Map ? Array.from(uc.entries()) : Object.entries(uc || {});
     const groups = groupUserChannels(entries);
     const sig = JSON.stringify(groups.map((g) => g.members));
     if (sig !== lastCallersSig) {
       lastCallersSig = sig;
-      post(DIR.COLLECTOR, EV.CALLERS_UPDATE, { groups, dayNumber: currentDay(state) });
+      post(DIR.COLLECTOR, EV.CALLERS_UPDATE, { groups, dayNumber });
     }
     // Whispers (1-on-1). whisperFrom/whisperTo are id-keyed objects.
     const wf = Object.keys(chat.whisperFrom || {});
     const wt = Object.keys(chat.whisperTo || {});
     if (wf.length || wt.length) {
-      post(DIR.COLLECTOR, EV.WHISPER, { from: wf, to: wt, dayNumber: currentDay(state) });
+      post(DIR.COLLECTOR, EV.WHISPER, { from: wf, to: wt, dayNumber });
     }
   } catch {
     /* ignore */
